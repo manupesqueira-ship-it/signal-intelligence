@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron?secret=signal-cron-2026-secure",
+      "schedule": "0 12 * * *"
+    }
+  ]
+}
