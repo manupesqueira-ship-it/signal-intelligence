@@ -62,6 +62,7 @@ export default function Home() {
   const [playing, setPlaying] = useState(false)
   const [speaking, setSpeaking] = useState(false)
   const [fCat, setFCat] = useState('all')
+  const [generating, setGenerating] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -108,17 +109,55 @@ export default function Home() {
 
   // TTS with Web Speech API (free)
   function speakText(text) {
+    if (!text) return
     if (speaking) {
       window.speechSynthesis.cancel()
       setSpeaking(false)
       return
     }
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = 'es-MX'
-    utterance.rate = 1.0
-    utterance.onend = () => setSpeaking(false)
-    window.speechSynthesis.speak(utterance)
-    setSpeaking(true)
+    if (!window.speechSynthesis) {
+      alert('Tu navegador no soporta audio. Prueba en Chrome o Safari de escritorio.')
+      return
+    }
+    // Mobile browsers need voices to be loaded first
+    const startSpeech = () => {
+      const utterance = new SpeechSynthesisUtterance(text)
+      utterance.lang = 'es-MX'
+      utterance.rate = 1.0
+      utterance.onend = () => setSpeaking(false)
+      utterance.onerror = (e) => {
+        setSpeaking(false)
+        alert('Error de audio: ' + (e.error || 'No se pudo reproducir. Prueba en un navegador de escritorio.'))
+      }
+      // Try to find a Spanish voice
+      const voices = window.speechSynthesis.getVoices()
+      const esVoice = voices.find(v => v.lang.startsWith('es'))
+      if (esVoice) utterance.voice = esVoice
+      window.speechSynthesis.speak(utterance)
+      setSpeaking(true)
+    }
+    // Voices may not be loaded yet on some browsers
+    if (window.speechSynthesis.getVoices().length === 0) {
+      window.speechSynthesis.onvoiceschanged = startSpeech
+    } else {
+      startSpeech()
+    }
+  }
+
+  async function generateBrief() {
+    setGenerating(true)
+    try {
+      const res = await fetch(`/api/generate-brief?secret=${encodeURIComponent('signal-cron-2026-secure')}`, { method: 'POST' })
+      const data = await res.json()
+      if (data.error) {
+        alert('Error: ' + data.error)
+      } else {
+        await loadData()
+      }
+    } catch (e) {
+      alert('Error generando briefing: ' + e.message)
+    }
+    setGenerating(false)
   }
 
   const cats = [...new Set(items.map(i => i.category).filter(Boolean))]
@@ -257,13 +296,10 @@ export default function Home() {
         <p style={{ color: 'var(--text-secondary)', fontSize: 15, textAlign: 'center', maxWidth: 400 }}>
           Aún no hay un briefing disponible. El primer briefing se generará automáticamente mañana a las 7:00 AM CDMX.
         </p>
-        <button onClick={async () => {
-          setLoading(true)
-          await fetch(`/api/generate-brief?secret=${encodeURIComponent('signal-cron-2026-secure')}`, { method: 'POST' })
-          await loadData()
-        }} style={{ marginTop: 16, background: 'var(--accent)', border: 'none', borderRadius: 8, padding: '12px 24px',
-          color: '#fff', cursor: 'pointer', fontSize: 14, fontWeight: 500 }}>
-          Generar primer briefing ahora
+        <button onClick={generateBrief} disabled={generating}
+          style={{ marginTop: 16, background: 'var(--accent)', border: 'none', borderRadius: 8, padding: '12px 24px',
+            color: '#fff', cursor: generating ? 'wait' : 'pointer', fontSize: 14, fontWeight: 500, opacity: generating ? 0.6 : 1 }}>
+          {generating ? '⏳ Generando briefing...' : 'Generar primer briefing ahora'}
         </button>
       </div>
     )
@@ -277,11 +313,18 @@ export default function Home() {
         <p style={{ color: 'var(--accent)', fontSize: 10, letterSpacing: '0.15em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 8 }}>Intelligence Briefing</p>
         <h1 style={{ fontFamily: "Georgia,serif", fontSize: 32, fontWeight: 400, fontStyle: 'italic', lineHeight: 1.2, marginBottom: 8 }}>{briefDate}</h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.7, maxWidth: 560 }}>{brief.opening}</p>
-        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+        <div style={{ display: 'flex', gap: 10, marginTop: 20, flexWrap: 'wrap' }}>
           <button onClick={() => setView('audio')} style={{ background: 'var(--accent)', border: 'none', borderRadius: 8, padding: '10px 20px',
             color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500, boxShadow: '0 2px 16px rgba(99,102,241,0.3)' }}>
             🎧 Escuchar Briefing
           </button>
+          {brief.date !== new Date().toISOString().split('T')[0] && (
+            <button onClick={generateBrief} disabled={generating}
+              style={{ background: 'transparent', border: '1px solid var(--accent)', borderRadius: 8, padding: '10px 20px',
+                color: 'var(--accent)', cursor: generating ? 'wait' : 'pointer', fontSize: 13, fontWeight: 500, opacity: generating ? 0.6 : 1 }}>
+              {generating ? '⏳ Generando...' : '🔄 Generar briefing de hoy'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -408,10 +451,11 @@ export default function Home() {
             <p style={{ color: 'var(--text-secondary)', fontSize: 11, marginTop: 2 }}>~30 min · Voz del navegador</p>
           </div>
         </div>
-        <button onClick={() => brief.audio_script && speakText(brief.audio_script)}
-          style={{ width: '100%', padding: '14px', background: speaking ? 'var(--red)' : 'var(--accent)', border: 'none', borderRadius: 10,
-            color: '#fff', cursor: 'pointer', fontSize: 15, fontWeight: 600 }}>
-          {speaking ? '⏸ Detener Audio' : '▶ Reproducir Briefing'}
+        <button onClick={() => speakText(brief.audio_script)}
+          disabled={!brief.audio_script}
+          style={{ width: '100%', padding: '14px', background: !brief.audio_script ? 'var(--border)' : speaking ? 'var(--red)' : 'var(--accent)', border: 'none', borderRadius: 10,
+            color: '#fff', cursor: !brief.audio_script ? 'not-allowed' : 'pointer', fontSize: 15, fontWeight: 600 }}>
+          {!brief.audio_script ? '⏳ Audio no disponible aún' : speaking ? '⏸ Detener Audio' : '▶ Reproducir Briefing'}
         </button>
       </Card>
       {brief.audio_script && <Card>
