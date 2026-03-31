@@ -133,12 +133,12 @@ INSTRUCCIONES PARA HOY:
     let briefData = null;
     for (const block of response.content) {
       if (block.type === 'text' && block.text.trim()) {
+        // Clean potential markdown fences
+        let text = block.text.trim();
+        if (text.startsWith('```')) {
+          text = text.replace(/^```json?\n?/, '').replace(/\n?```$/, '');
+        }
         try {
-          // Clean potential markdown fences
-          let text = block.text.trim();
-          if (text.startsWith('```')) {
-            text = text.replace(/^```json?\n?/, '').replace(/\n?```$/, '');
-          }
           briefData = JSON.parse(text);
         } catch (e) {
           // Try to find JSON in the text
