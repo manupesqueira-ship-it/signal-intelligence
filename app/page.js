@@ -107,7 +107,7 @@ export default function Home() {
     setLoading(false)
   }
 
-  // TTS with Web Speech API (free)
+  // TTS — chunked for mobile (long text silently fails on phones)
   function speakText(text) {
     if (!text) return
     if (speaking) {
@@ -116,31 +116,43 @@ export default function Home() {
       return
     }
     if (!window.speechSynthesis) {
-      alert('Tu navegador no soporta audio. Prueba en Chrome o Safari de escritorio.')
+      alert('Tu navegador no soporta audio. Prueba en Chrome o Safari.')
       return
     }
-    // Mobile browsers need voices to be loaded first
-    const startSpeech = () => {
-      const utterance = new SpeechSynthesisUtterance(text)
-      utterance.lang = 'es-MX'
-      utterance.rate = 1.0
-      utterance.onend = () => setSpeaking(false)
-      utterance.onerror = (e) => {
-        setSpeaking(false)
-        alert('Error de audio: ' + (e.error || 'No se pudo reproducir. Prueba en un navegador de escritorio.'))
+
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text]
+    const chunks = []
+    let current = ''
+    for (const s of sentences) {
+      if ((current + s).length > 200) {
+        if (current) chunks.push(current.trim())
+        current = s
+      } else {
+        current += s
       }
-      // Try to find a Spanish voice
-      const voices = window.speechSynthesis.getVoices()
-      const esVoice = voices.find(v => v.lang.startsWith('es'))
-      if (esVoice) utterance.voice = esVoice
-      window.speechSynthesis.speak(utterance)
-      setSpeaking(true)
     }
-    // Voices may not be loaded yet on some browsers
-    if (window.speechSynthesis.getVoices().length === 0) {
-      window.speechSynthesis.onvoiceschanged = startSpeech
+    if (current.trim()) chunks.push(current.trim())
+
+    let idx = 0
+    const voices = window.speechSynthesis.getVoices()
+    const esVoice = voices.find(v => v.lang.startsWith('es'))
+
+    function speakNext() {
+      if (idx >= chunks.length) { setSpeaking(false); return }
+      const u = new SpeechSynthesisUtterance(chunks[idx])
+      u.lang = 'es-MX'
+      u.rate = 1.0
+      if (esVoice) u.voice = esVoice
+      u.onend = () => { idx++; speakNext() }
+      u.onerror = () => { idx++; speakNext() }
+      window.speechSynthesis.speak(u)
+    }
+
+    setSpeaking(true)
+    if (voices.length === 0) {
+      window.speechSynthesis.onvoiceschanged = () => speakNext()
     } else {
-      startSpeech()
+      speakNext()
     }
   }
 
